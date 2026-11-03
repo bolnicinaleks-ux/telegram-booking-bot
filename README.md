@@ -1,5 +1,7 @@
 # Telegram-бот онлайн-записи
 
+<p align="center"><img src="docs/demo.gif" width="320" alt="Демо: запись на услугу"></p>
+
 aiogram 3 · SQLite (aiosqlite) · Docker
 
 ## Возможности
