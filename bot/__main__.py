@@ -33,14 +33,15 @@ async def main() -> None:
 
     bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = build_dispatcher(db, cfg)
-    await bot.set_my_commands([
-        BotCommand(command="book", description="Записаться"),
-        BotCommand(command="my", description="Мои записи"),
-        BotCommand(command="start", description="Главное меню"),
-    ])
-
     reminders = asyncio.create_task(reminder_loop(bot, db, cfg))
+    # Всё, что может упасть (например, нет сети при старте), — внутри try:
+    # иначе открытая БД не даст процессу завершиться и супервизор не перезапустит бота.
     try:
+        await bot.set_my_commands([
+            BotCommand(command="book", description="Записаться"),
+            BotCommand(command="my", description="Мои записи"),
+            BotCommand(command="start", description="Главное меню"),
+        ])
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
     finally:
