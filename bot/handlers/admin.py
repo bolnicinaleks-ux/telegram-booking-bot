@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, Message
 from bot import keyboards as kb
 from bot.config import Config
 from bot.db import Database
-from bot.notify import notify_user
+from bot.notify import notify_admins, notify_user
 from bot.utils import booking_card, fmt_day_long, fmt_price, now_local, safe_edit
 
 HELP = (
@@ -30,7 +30,11 @@ class IsAdmin(BaseFilter):
 
 router = Router(name="admin")
 router.message.filter(IsAdmin())
-router.callback_query.filter(IsAdmin())
+
+
+def can_manage(user_id: int, cfg: Config, booking) -> bool:
+    """Админ — любую запись; в демо-режиме клиент — свою (через копию карточки владельца)."""
+    return user_id in cfg.admin_ids or (cfg.demo_mode and booking is not None and booking["user_id"] == user_id)
 
 
 def _parse_day(raw: str, today: date) -> date | None:
@@ -135,7 +139,10 @@ async def cmd_delservice(message: Message, command: CommandObject, db: Database)
 @router.callback_query(kb.BookingCb.filter(F.action == "acancel"))
 async def ask_admin_cancel(cb: CallbackQuery, callback_data: kb.BookingCb, db: Database, cfg: Config) -> None:
     booking = await db.get_booking(callback_data.id)
-    if booking is None or booking["status"] != "active":
+    if not can_manage(cb.from_user.id, cfg, booking):
+        await cb.answer("Нет доступа", show_alert=True)
+        return
+    if booking["status"] != "active":
         await cb.answer("Запись уже отменена", show_alert=True)
         return
     await cb.message.answer(
@@ -148,7 +155,10 @@ async def ask_admin_cancel(cb: CallbackQuery, callback_data: kb.BookingCb, db: D
 @router.callback_query(kb.BookingCb.filter(F.action == "acancel_yes"))
 async def do_admin_cancel(cb: CallbackQuery, callback_data: kb.BookingCb, db: Database, cfg: Config, bot: Bot) -> None:
     booking = await db.get_booking(callback_data.id)
-    if booking is None or not await db.cancel_booking(booking["id"]):
+    if not can_manage(cb.from_user.id, cfg, booking):
+        await cb.answer("Нет доступа", show_alert=True)
+        return
+    if not await db.cancel_booking(booking["id"]):
         await cb.answer("Запись уже отменена", show_alert=True)
         return
     delivered = await notify_user(
@@ -159,9 +169,17 @@ async def do_admin_cancel(cb: CallbackQuery, callback_data: kb.BookingCb, db: Da
     suffix = "" if delivered else "\n\n⚠️ Клиент не получил уведомление (бот заблокирован)."
     await safe_edit(cb.message, f"Запись #{booking['id']} отменена.{suffix}")
     await cb.answer()
+    if cb.from_user.id not in cfg.admin_ids:
+        await notify_admins(
+            bot, cfg, "🧪 Демо: клиент отменил запись через карточку владельца\n\n"
+            + booking_card(booking, cfg.currency, with_client=True),
+        )
 
 
 @router.callback_query(kb.BookingCb.filter(F.action == "akeep"))
-async def keep_booking(cb: CallbackQuery, callback_data: kb.BookingCb) -> None:
+async def keep_booking(cb: CallbackQuery, callback_data: kb.BookingCb, db: Database, cfg: Config) -> None:
+    if not can_manage(cb.from_user.id, cfg, await db.get_booking(callback_data.id)):
+        await cb.answer("Нет доступа", show_alert=True)
+        return
     await safe_edit(cb.message, f"Запись #{callback_data.id} оставлена.")
     await cb.answer()

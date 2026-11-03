@@ -26,6 +26,11 @@ from bot.utils import (
 
 router = Router(name="client")
 
+DEMO_NOTE = (
+    "\n\n🧪 <b>Это демо-бот.</b> После записи вы получите копию карточки, "
+    "которую видит владелец, и сможете сами отменить запись как администратор."
+)
+
 
 # --- Вспомогательные функции ---
 
@@ -124,11 +129,11 @@ async def _my_list(db: Database, cfg: Config, user_id: int) -> tuple[str, Inline
 # --- Меню (работает из любого состояния) ---
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext) -> None:
+async def cmd_start(message: Message, state: FSMContext, cfg: Config) -> None:
     await state.clear()
     await message.answer(
         "Здравствуйте! Здесь можно записаться на приём.\n\n"
-        f"{kb.BTN_BOOK} — новая запись\n{kb.BTN_MY} — ваши записи",
+        f"{kb.BTN_BOOK} — новая запись\n{kb.BTN_MY} — ваши записи" + (DEMO_NOTE if cfg.demo_mode else ""),
         reply_markup=kb.main_menu(),
     )
 
@@ -304,6 +309,12 @@ async def confirm(cb: CallbackQuery, state: FSMContext, db: Database, cfg: Confi
         "🆕 <b>Новая запись</b>\n\n" + booking_card(booking, cfg.currency, with_client=True),
         kb.admin_booking_kb(booking_id),
     )
+    if cfg.demo_mode and cb.from_user.id not in cfg.admin_ids:
+        await cb.message.answer(
+            "👀 <b>Так эту запись увидит владелец</b> — кнопка работает:\n\n"
+            "🆕 <b>Новая запись</b>\n\n" + booking_card(booking, cfg.currency, with_client=True),
+            reply_markup=kb.admin_booking_kb(booking_id),
+        )
 
 
 # --- Навигация ---

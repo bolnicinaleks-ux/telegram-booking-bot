@@ -3,6 +3,7 @@
 Запуск: python -m tests.test_flow
 """
 import asyncio
+import dataclasses
 import itertools
 import os
 import tempfile
@@ -20,7 +21,7 @@ from bot.db import Database
 from bot.reminders import send_due_reminders
 from bot.utils import now_local
 
-ADMIN, CLIENT, CLIENT2 = 1000, 2000, 3000
+ADMIN, CLIENT, CLIENT2, STRANGER = 1000, 2000, 3000, 4000
 _ids = itertools.count(1)
 
 
@@ -233,6 +234,36 @@ async def main() -> None:
     await feed(press(CLIENT, "tm:1200"))
     assert "устарела" in session.alerts()[-1]
     print("✔ устаревшие кнопки")
+
+    # 9. Демо-режим: клиент получает копию карточки владельца и может управлять своей записью
+    demo = dataclasses.replace(cfg, demo_mode=True)
+    dfeed = lambda upd: dp.feed_update(bot, upd, cfg=demo)  # noqa: E731
+    await dfeed(msg(CLIENT2, "/start"))
+    assert "демо-бот" in session.texts(CLIENT2)[-1]
+    await feed(msg(CLIENT2, "/start"))
+    assert "демо-бот" not in session.texts(CLIENT2)[-1]
+    await dfeed(msg(CLIENT2, "/book"))
+    await dfeed(press(CLIENT2, session.buttons("svc")[0]))
+    await dfeed(press(CLIENT2, session.buttons("day")[2]))
+    await dfeed(press(CLIENT2, session.buttons("tm")[0]))
+    await dfeed(msg(CLIENT2, "Анна"))
+    await dfeed(msg(CLIENT2, "+77770001122"))
+    await dfeed(press(CLIENT2, "nav:confirm"))
+    copy = session.texts(CLIENT2)[-1]
+    assert "Так эту запись увидит владелец" in copy and "Анна" in copy
+    demo_id = int(session.buttons("bk")[0].split(":")[-1])
+    await feed(press(CLIENT2, f"bk:acancel:{demo_id}"))
+    assert session.alerts()[-1] == "Нет доступа"  # без демо-режима — только админ
+    await dfeed(press(STRANGER, f"bk:acancel:{demo_id}"))
+    assert session.alerts()[-1] == "Нет доступа"  # чужую запись — нельзя
+    await dfeed(press(CLIENT2, f"bk:acancel:{demo_id}"))
+    await dfeed(press(CLIENT2, f"bk:acancel_yes:{demo_id}"))
+    assert (await db.get_booking(demo_id))["status"] == "cancelled"
+    assert "отменена администратором" in session.texts(CLIENT2)[-2]
+    assert "Демо: клиент отменил" in session.texts(ADMIN)[-1]
+    await dfeed(msg(CLIENT2, "/today"))
+    assert "Админ-панель" not in session.texts(CLIENT2)[-1] and "Записей" not in session.texts(CLIENT2)[-1]
+    print("✔ демо-режим: копия карточки владельца, управление только своей записью")
 
     await db.close()
     print("\nВСЕ ПРОВЕРКИ ПРОЙДЕНЫ")

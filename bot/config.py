@@ -39,6 +39,7 @@ class Config:
     min_lead: int
     remind_before: int
     max_active_per_user: int
+    demo_mode: bool = False
 
 
 def load_config() -> Config:
@@ -62,6 +63,7 @@ def load_config() -> Config:
         min_lead=int(os.getenv("MIN_LEAD_MINUTES", "60")),
         remind_before=int(os.getenv("REMIND_BEFORE_MINUTES", "120")),
         max_active_per_user=int(os.getenv("MAX_ACTIVE_PER_USER", "3")),
+        demo_mode=os.getenv("DEMO_MODE", "0").strip().lower() in ("1", "true", "yes"),
     )
     if cfg.work_start >= cfg.work_end:
         raise RuntimeError("WORK_START должен быть раньше WORK_END")
