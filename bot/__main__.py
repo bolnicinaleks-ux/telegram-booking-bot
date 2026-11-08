@@ -11,6 +11,7 @@ from aiogram.types import BotCommand
 
 from bot.config import load_config
 from bot.db import Database
+from bot.i18n import _
 from bot.handlers import admin, client
 from bot.reminders import reminder_loop
 
@@ -38,9 +39,9 @@ async def main() -> None:
     # иначе открытая БД не даст процессу завершиться и супервизор не перезапустит бота.
     try:
         await bot.set_my_commands([
-            BotCommand(command="book", description="Записаться"),
-            BotCommand(command="my", description="Мои записи"),
-            BotCommand(command="start", description="Главное меню"),
+            BotCommand(command="book", description=_("Записаться")),
+            BotCommand(command="my", description=_("Мои записи")),
+            BotCommand(command="start", description=_("Главное меню")),
         ])
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)

@@ -10,12 +10,13 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from bot.i18n import _
 from bot.utils import fmt_day_short, fmt_price, str_to_dt
 
-BTN_BOOK = "📅 Записаться"
-BTN_MY = "📋 Мои записи"
-BACK = "◀️ Назад"
-CANCEL = "✖️ Отмена"
+BTN_BOOK = _("📅 Записаться")
+BTN_MY = _("📋 Мои записи")
+BACK = _("◀️ Назад")
+CANCEL = _("✖️ Отмена")
 
 
 class ServiceCb(CallbackData, prefix="svc"):
@@ -54,7 +55,8 @@ def services_kb(services, currency: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for s in services:
         b.button(
-            text=f"{s['name']} · {s['duration']} мин · {fmt_price(s['price'], currency)}",
+            text=_("{name} · {duration} мин · {price}", name=s["name"], duration=s["duration"],
+                   price=fmt_price(s["price"], currency)),
             callback_data=ServiceCb(id=s["id"]),
         )
     b.adjust(1)
@@ -85,7 +87,7 @@ def back_kb(to: str) -> InlineKeyboardMarkup:
 
 
 def confirm_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[_nav("confirm", "✅ Подтвердить"), _nav("cancel", CANCEL)]])
+    return InlineKeyboardMarkup(inline_keyboard=[[_nav("confirm", _("✅ Подтвердить")), _nav("cancel", CANCEL)]])
 
 
 def name_kb(prev_name: str | None) -> ReplyKeyboardMarkup | ReplyKeyboardRemove:
@@ -95,12 +97,12 @@ def name_kb(prev_name: str | None) -> ReplyKeyboardMarkup | ReplyKeyboardRemove:
         keyboard=[[KeyboardButton(text=prev_name)]],
         resize_keyboard=True,
         one_time_keyboard=True,
-        input_field_placeholder="Ваше имя",
+        input_field_placeholder=_("Ваше имя"),
     )
 
 
 def phone_kb(prev_phone: str | None) -> ReplyKeyboardMarkup:
-    rows = [[KeyboardButton(text="📱 Отправить мой номер", request_contact=True)]]
+    rows = [[KeyboardButton(text=_("📱 Отправить мой номер"), request_contact=True)]]
     if prev_phone:
         rows.append([KeyboardButton(text=prev_phone)])
     return ReplyKeyboardMarkup(
@@ -116,7 +118,8 @@ def my_bookings_kb(rows) -> InlineKeyboardMarkup:
     for r in rows:
         starts = str_to_dt(r["starts_at"])
         b.button(
-            text=f"❌ Отменить #{r['id']} · {fmt_day_short(starts.date())} {starts:%H:%M}",
+            text=_("❌ Отменить #{id} · {day} {time}", id=r["id"], day=fmt_day_short(starts.date()),
+                   time=f"{starts:%H:%M}"),
             callback_data=BookingCb(action="cancel", id=r["id"]),
         )
     b.adjust(1)
@@ -125,14 +128,14 @@ def my_bookings_kb(rows) -> InlineKeyboardMarkup:
 
 def user_cancel_confirm_kb(booking_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Да, отменить", callback_data=BookingCb(action="cancel_yes", id=booking_id))
+    b.button(text=_("Да, отменить"), callback_data=BookingCb(action="cancel_yes", id=booking_id))
     b.button(text=BACK, callback_data=BookingCb(action="my", id=booking_id))
     return b.as_markup()
 
 
 def admin_booking_kb(booking_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="❌ Отменить запись", callback_data=BookingCb(action="acancel", id=booking_id))
+    b.button(text=_("❌ Отменить запись"), callback_data=BookingCb(action="acancel", id=booking_id))
     return b.as_markup()
 
 
@@ -149,6 +152,6 @@ def admin_day_kb(rows) -> InlineKeyboardMarkup:
 
 def admin_cancel_confirm_kb(booking_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Да, отменить", callback_data=BookingCb(action="acancel_yes", id=booking_id))
-    b.button(text="Нет", callback_data=BookingCb(action="akeep", id=booking_id))
+    b.button(text=_("Да, отменить"), callback_data=BookingCb(action="acancel_yes", id=booking_id))
+    b.button(text=_("Нет"), callback_data=BookingCb(action="akeep", id=booking_id))
     return b.as_markup()

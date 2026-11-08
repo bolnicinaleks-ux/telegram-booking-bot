@@ -7,6 +7,7 @@ from aiogram import Bot
 
 from bot.config import Config
 from bot.db import Database
+from bot.i18n import _
 from bot.keyboards import BTN_MY
 from bot.notify import notify_user
 from bot.utils import fmt_dt, now_local, str_to_dt
@@ -22,8 +23,8 @@ async def send_due_reminders(bot: Bot, db: Database, cfg: Config) -> int:
         await notify_user(
             bot,
             r["user_id"],
-            f"⏰ Напоминание: {fmt_dt(str_to_dt(r['starts_at']))} — {escape(r['service_name'])}.\n"
-            f"Если не сможете прийти, отмените запись в «{BTN_MY}».",
+            _("⏰ Напоминание: {when} — {service}.\nЕсли не сможете прийти, отмените запись в «{my}».",
+              when=fmt_dt(str_to_dt(r["starts_at"])), service=escape(r["service_name"]), my=BTN_MY),
         )
         await db.mark_reminded(r["id"])
     return len(rows)

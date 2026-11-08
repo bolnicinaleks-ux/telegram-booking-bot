@@ -9,10 +9,11 @@ from aiogram.types import CallbackQuery, Message
 from bot import keyboards as kb
 from bot.config import Config
 from bot.db import Database
+from bot.i18n import _
 from bot.notify import notify_admins, notify_user
 from bot.utils import booking_card, fmt_day_long, fmt_price, now_local, safe_edit
 
-HELP = (
+HELP = _(
     "<b>Админ-панель</b>\n\n"
     "/today — записи на сегодня\n"
     "/tomorrow — записи на завтра\n"
@@ -58,9 +59,9 @@ async def _send_day(message: Message, db: Database, cfg: Config, day: date) -> N
     rows = await db.bookings_on(day)
     title = f"<b>{fmt_day_long(day)} {day:%Y}</b>"
     if not rows:
-        await message.answer(f"{title}\n\nЗаписей нет.")
+        await message.answer(f"{title}\n\n{_('Записей нет.')}")
         return
-    text = f"{title} · записей: {len(rows)}\n\n" + "\n\n".join(
+    text = title + _(" · записей: {n}", n=len(rows)) + "\n\n" + "\n\n".join(
         booking_card(r, cfg.currency, with_client=True) for r in rows
     )
     await message.answer(text, reply_markup=kb.admin_day_kb(rows))
@@ -85,7 +86,7 @@ async def cmd_tomorrow(message: Message, db: Database, cfg: Config) -> None:
 async def cmd_day(message: Message, command: CommandObject, db: Database, cfg: Config) -> None:
     day = _parse_day(command.args or "", now_local(cfg).date())
     if day is None:
-        await message.answer("Формат: /day 05.11 или /day 05.11.2026")
+        await message.answer(_("Формат: /day 05.11 или /day 05.11.2026"))
         return
     await _send_day(message, db, cfg, day)
 
@@ -94,13 +95,14 @@ async def cmd_day(message: Message, command: CommandObject, db: Database, cfg: C
 async def cmd_services(message: Message, db: Database, cfg: Config) -> None:
     services = await db.list_services()
     if not services:
-        await message.answer("Услуг нет. Добавьте: /addservice Название | 60 | 5000")
+        await message.answer(_("Услуг нет. Добавьте: /addservice Название | 60 | 5000"))
         return
     lines = [
-        f"<code>{s['id']}</code> · {escape(s['name'])} · {s['duration']} мин · {fmt_price(s['price'], cfg.currency)}"
+        f"<code>{s['id']}</code> · " + _("{name} · {duration} мин · {price}", name=escape(s["name"]),
+                                          duration=s["duration"], price=fmt_price(s["price"], cfg.currency))
         for s in services
     ]
-    await message.answer("<b>Услуги</b>\n\n" + "\n".join(lines))
+    await message.answer(_("<b>Услуги</b>") + "\n\n" + "\n".join(lines))
 
 
 @router.message(Command("addservice"))
@@ -111,15 +113,16 @@ async def cmd_addservice(message: Message, command: CommandObject, db: Database,
         if len(parts) != 3 or not 1 <= len(name) <= 60 or not 5 <= duration <= 600 or price < 0:
             raise ValueError
     except (ValueError, IndexError):
-        await message.answer(
+        await message.answer(_(
             "Формат: /addservice Название | минуты | цена\n"
             "Пример: /addservice Маникюр | 90 | 7000\n"
             "Длительность 5–600 мин, цена ≥ 0."
-        )
+        ))
         return
     service_id = await db.add_service(name, duration, price)
     await message.answer(
-        f"Добавлено: <code>{service_id}</code> · {escape(name)} · {duration} мин · {fmt_price(price, cfg.currency)}"
+        _("Добавлено: <code>{id}</code> · {name} · {duration} мин · {price}", id=service_id, name=escape(name),
+          duration=duration, price=fmt_price(price, cfg.currency))
     )
 
 
@@ -128,25 +131,25 @@ async def cmd_delservice(message: Message, command: CommandObject, db: Database)
     try:
         service_id = int((command.args or "").strip())
     except ValueError:
-        await message.answer("Формат: /delservice ID (ID — в /services)")
+        await message.answer(_("Формат: /delservice ID (ID — в /services)"))
         return
     if await db.hide_service(service_id):
-        await message.answer(f"Услуга {service_id} скрыта. Существующие записи сохранены.")
+        await message.answer(_("Услуга {id} скрыта. Существующие записи сохранены.", id=service_id))
     else:
-        await message.answer("Услуга не найдена или уже скрыта.")
+        await message.answer(_("Услуга не найдена или уже скрыта."))
 
 
 @router.callback_query(kb.BookingCb.filter(F.action == "acancel"))
 async def ask_admin_cancel(cb: CallbackQuery, callback_data: kb.BookingCb, db: Database, cfg: Config) -> None:
     booking = await db.get_booking(callback_data.id)
     if not can_manage(cb.from_user.id, cfg, booking):
-        await cb.answer("Нет доступа", show_alert=True)
+        await cb.answer(_("Нет доступа"), show_alert=True)
         return
     if booking["status"] != "active":
-        await cb.answer("Запись уже отменена", show_alert=True)
+        await cb.answer(_("Запись уже отменена"), show_alert=True)
         return
     await cb.message.answer(
-        "Отменить запись?\n\n" + booking_card(booking, cfg.currency, with_client=True),
+        _("Отменить запись?") + "\n\n" + booking_card(booking, cfg.currency, with_client=True),
         reply_markup=kb.admin_cancel_confirm_kb(booking["id"]),
     )
     await cb.answer()
@@ -156,22 +159,22 @@ async def ask_admin_cancel(cb: CallbackQuery, callback_data: kb.BookingCb, db: D
 async def do_admin_cancel(cb: CallbackQuery, callback_data: kb.BookingCb, db: Database, cfg: Config, bot: Bot) -> None:
     booking = await db.get_booking(callback_data.id)
     if not can_manage(cb.from_user.id, cfg, booking):
-        await cb.answer("Нет доступа", show_alert=True)
+        await cb.answer(_("Нет доступа"), show_alert=True)
         return
     if not await db.cancel_booking(booking["id"]):
-        await cb.answer("Запись уже отменена", show_alert=True)
+        await cb.answer(_("Запись уже отменена"), show_alert=True)
         return
     delivered = await notify_user(
         bot,
         booking["user_id"],
-        "Ваша запись отменена администратором:\n\n" + booking_card(booking, cfg.currency),
+        _("Ваша запись отменена администратором:") + "\n\n" + booking_card(booking, cfg.currency),
     )
-    suffix = "" if delivered else "\n\n⚠️ Клиент не получил уведомление (бот заблокирован)."
-    await safe_edit(cb.message, f"Запись #{booking['id']} отменена.{suffix}")
+    suffix = "" if delivered else "\n\n" + _("⚠️ Клиент не получил уведомление (бот заблокирован).")
+    await safe_edit(cb.message, _("Запись #{id} отменена.", id=booking["id"]) + suffix)
     await cb.answer()
     if cb.from_user.id not in cfg.admin_ids:
         await notify_admins(
-            bot, cfg, "🧪 Демо: клиент отменил запись через карточку владельца\n\n"
+            bot, cfg, _("🧪 Демо: клиент отменил запись через карточку владельца") + "\n\n"
             + booking_card(booking, cfg.currency, with_client=True),
         )
 
@@ -179,7 +182,7 @@ async def do_admin_cancel(cb: CallbackQuery, callback_data: kb.BookingCb, db: Da
 @router.callback_query(kb.BookingCb.filter(F.action == "akeep"))
 async def keep_booking(cb: CallbackQuery, callback_data: kb.BookingCb, db: Database, cfg: Config) -> None:
     if not can_manage(cb.from_user.id, cfg, await db.get_booking(callback_data.id)):
-        await cb.answer("Нет доступа", show_alert=True)
+        await cb.answer(_("Нет доступа"), show_alert=True)
         return
-    await safe_edit(cb.message, f"Запись #{callback_data.id} оставлена.")
+    await safe_edit(cb.message, _("Запись #{id} оставлена.", id=callback_data.id))
     await cb.answer()

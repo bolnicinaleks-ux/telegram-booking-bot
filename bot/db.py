@@ -3,6 +3,7 @@ from datetime import date, datetime, time, timedelta
 
 import aiosqlite
 
+from bot.i18n import LANG, _
 from bot.utils import dt_to_str, str_to_dt
 
 SCHEMA = """
@@ -32,10 +33,11 @@ CREATE INDEX IF NOT EXISTS idx_bookings_time ON bookings(status, starts_at);
 CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings(user_id, status);
 """
 
+_PRICES = (30, 80, 0) if LANG == "en" else (5000, 15000, 0)
 DEFAULT_SERVICES = [
-    ("Стрижка", 60, 5000),
-    ("Окрашивание", 120, 15000),
-    ("Консультация", 30, 0),
+    (_("Стрижка"), 60, _PRICES[0]),
+    (_("Окрашивание"), 120, _PRICES[1]),
+    (_("Консультация"), 30, _PRICES[2]),
 ]
 
 BOOKING_SELECT = """

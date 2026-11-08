@@ -3,6 +3,9 @@
 Запуск: python -m tests.test_flow
 """
 import asyncio
+import os
+
+os.environ.setdefault("BOT_LANG", "ru")  # тест проверяет русские тексты (test_en ставит en)
 import dataclasses
 import itertools
 import os

@@ -6,15 +6,18 @@ from typing import TYPE_CHECKING
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardMarkup, Message
 
+from bot.i18n import LANG, _
+
 if TYPE_CHECKING:
     from bot.config import Config
 
 DT_FMT = "%Y-%m-%d %H:%M"
-WEEKDAYS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+WEEKDAYS = (_("Пн"), _("Вт"), _("Ср"), _("Чт"), _("Пт"), _("Сб"), _("Вс"))
 MONTHS = (
-    "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+    _("января"), _("февраля"), _("марта"), _("апреля"), _("мая"), _("июня"),
+    _("июля"), _("августа"), _("сентября"), _("октября"), _("ноября"), _("декабря"),
 )
+MONTHS_SHORT_EN = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def now_local(cfg: "Config") -> datetime:
@@ -31,10 +34,14 @@ def str_to_dt(value: str) -> datetime:
 
 
 def fmt_day_short(d: date) -> str:
+    if LANG == "en":
+        return f"{WEEKDAYS[d.weekday()]} {MONTHS_SHORT_EN[d.month - 1]} {d.day}"
     return f"{WEEKDAYS[d.weekday()]} {d:%d.%m}"
 
 
 def fmt_day_long(d: date) -> str:
+    if LANG == "en":
+        return f"{WEEKDAYS[d.weekday()]}, {MONTHS[d.month - 1]} {d.day}"
     return f"{WEEKDAYS[d.weekday()]}, {d.day} {MONTHS[d.month - 1]}"
 
 
@@ -43,6 +50,8 @@ def fmt_dt(dt: datetime) -> str:
 
 
 def fmt_price(amount: int, currency: str) -> str:
+    if LANG == "en":
+        return f"{currency}{amount:,}" if currency in ("$", "€", "£") else f"{amount:,} {currency}"
     return f"{amount:,}".replace(",", " ") + f" {currency}"
 
 
