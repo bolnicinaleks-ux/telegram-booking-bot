@@ -10,8 +10,8 @@ from bot import keyboards as kb
 from bot.config import Config
 from bot.db import Database
 from bot.i18n import _
-from bot.notify import notify_admins
-from bot.slots import candidate_days, free_slots
+from bot.notify import notify_admins, notify_master
+from bot.slots import candidate_days, free_slots, master_cfg
 from bot.states import Booking
 from bot.utils import (
     booking_card,
@@ -35,24 +35,38 @@ DEMO_NOTE = _(
 
 # --- Вспомогательные функции ---
 
-async def _slots(db: Database, cfg: Config, day: date, duration: int) -> list[datetime]:
-    return free_slots(cfg, day, duration, await db.busy_intervals(day), now_local(cfg))
+async def _master(db: Database, data: dict):
+    """Мастер из сценария: None — общее расписание (мастеров нет), False — мастер стал недоступен."""
+    if data.get("master_id") is None:
+        return None
+    master = await db.get_master(data["master_id"])
+    return master if master is not None and master["active"] else False
 
 
-async def _available_days(db: Database, cfg: Config, duration: int) -> list[date]:
+async def _slots(db: Database, cfg: Config, day: date, duration: int, master=None) -> list[datetime]:
+    busy = await db.busy_intervals(day, master["id"] if master else None)
+    return free_slots(master_cfg(cfg, master), day, duration, busy, now_local(cfg))
+
+
+async def _available_days(db: Database, cfg: Config, duration: int, master=None) -> list[date]:
     now = now_local(cfg)
+    mcfg = master_cfg(cfg, master)
+    master_id = master["id"] if master else None
     result = []
-    for day in candidate_days(cfg, now):
-        if free_slots(cfg, day, duration, await db.busy_intervals(day), now):
+    for day in candidate_days(mcfg, now):
+        if free_slots(mcfg, day, duration, await db.busy_intervals(day, master_id), now):
             result.append(day)
     return result
 
 
 def _service_line(data: dict, cfg: Config) -> str:
-    return _(
+    line = _(
         "Услуга: <b>{name}</b> · {duration} мин · {price}",
         name=escape(data["service_name"]), duration=data["duration"], price=fmt_price(data["price"], cfg.currency),
     )
+    if data.get("master_name"):
+        line += "\n" + _("Мастер: <b>{name}</b>", name=escape(data["master_name"]))
+    return line
 
 
 def _summary(data: dict, cfg: Config) -> str:
@@ -78,12 +92,46 @@ async def _show_services(message: Message, state: FSMContext, db: Database, cfg:
         await message.answer(text, reply_markup=markup)
 
 
+async def _show_masters(message: Message, state: FSMContext, db: Database, cfg: Config) -> None:
+    """Шаг выбора мастера. При 0–1 активных мастерах пропускается — как с одним общим расписанием."""
+    masters = await db.list_masters()
+    if len(masters) <= 1:
+        master = masters[0] if masters else None
+        await state.update_data(
+            master_id=master["id"] if master else None,
+            master_name=master["name"] if master else None,
+            choose_master=False,
+        )
+        await _show_days(message, state, db, cfg)
+        return
+    await state.update_data(master_id=None, master_name=None, choose_master=True)
+    await state.set_state(Booking.master)
+    data = await state.get_data()
+    await safe_edit(message, f"{_service_line(data, cfg)}\n\n{_('Выберите мастера:')}", kb.masters_kb(masters))
+
+
+async def _master_gone(cb: CallbackQuery, state: FSMContext, db: Database, cfg: Config) -> None:
+    await cb.answer(_("Мастер недоступен, выберите другого"), show_alert=True)
+    await _show_masters(cb.message, state, db, cfg)
+
+
 async def _show_days(message: Message, state: FSMContext, db: Database, cfg: Config) -> None:
     data = await state.get_data()
-    days = await _available_days(db, cfg, data["duration"])
+    master = await _master(db, data)
+    if master is False:
+        await _show_masters(message, state, db, cfg)
+        return
+    days = await _available_days(db, cfg, data["duration"], master)
     await state.set_state(Booking.day)
+    back = "masters" if data.get("choose_master") else "services"
     if days:
-        await safe_edit(message, f"{_service_line(data, cfg)}\n\n{_('Выберите дату:')}", kb.days_kb(days))
+        await safe_edit(message, f"{_service_line(data, cfg)}\n\n{_('Выберите дату:')}", kb.days_kb(days, back))
+    elif data.get("choose_master"):
+        await safe_edit(
+            message,
+            f"{_service_line(data, cfg)}\n\n{_('Свободных дат нет. Выберите другого мастера.')}",
+            kb.back_kb("masters"),
+        )
     else:
         await safe_edit(
             message,
@@ -95,7 +143,11 @@ async def _show_days(message: Message, state: FSMContext, db: Database, cfg: Con
 async def _show_times(message: Message, state: FSMContext, db: Database, cfg: Config) -> None:
     data = await state.get_data()
     day = date.fromisoformat(data["day"])
-    slots = await _slots(db, cfg, day, data["duration"])
+    master = await _master(db, data)
+    if master is False:
+        await _show_masters(message, state, db, cfg)
+        return
+    slots = await _slots(db, cfg, day, data["duration"], master)
     if not slots:
         await _show_days(message, state, db, cfg)
         return
@@ -178,6 +230,19 @@ async def pick_service(
         duration=service["duration"],
         price=service["price"],
     )
+    await _show_masters(cb.message, state, db, cfg)
+    await cb.answer()
+
+
+@router.callback_query(Booking.master, kb.MasterCb.filter())
+async def pick_master(
+    cb: CallbackQuery, callback_data: kb.MasterCb, state: FSMContext, db: Database, cfg: Config
+) -> None:
+    master = await db.get_master(callback_data.id)
+    if master is None or not master["active"]:
+        await _master_gone(cb, state, db, cfg)
+        return
+    await state.update_data(master_id=master["id"], master_name=master["name"])
     await _show_days(cb.message, state, db, cfg)
     await cb.answer()
 
@@ -190,7 +255,11 @@ async def pick_day(cb: CallbackQuery, callback_data: kb.DayCb, state: FSMContext
         await cb.answer()
         return
     data = await state.get_data()
-    if not await _slots(db, cfg, day, data["duration"]):
+    master = await _master(db, data)
+    if master is False:
+        await _master_gone(cb, state, db, cfg)
+        return
+    if not await _slots(db, cfg, day, data["duration"], master):
         await cb.answer(_("На эту дату свободного времени уже нет"), show_alert=True)
         await _show_days(cb.message, state, db, cfg)
         return
@@ -208,7 +277,11 @@ async def pick_time(cb: CallbackQuery, callback_data: kb.TimeCb, state: FSMConte
     except ValueError:
         await cb.answer()
         return
-    if starts not in await _slots(db, cfg, day, data["duration"]):
+    master = await _master(db, data)
+    if master is False:
+        await _master_gone(cb, state, db, cfg)
+        return
+    if starts not in await _slots(db, cfg, day, data["duration"], master):
         await cb.answer(_("Это время уже занято, выберите другое"), show_alert=True)
         await _show_times(cb.message, state, db, cfg)
         return
@@ -279,7 +352,11 @@ async def confirm(cb: CallbackQuery, state: FSMContext, db: Database, cfg: Confi
         await cb.answer()
         return
 
-    if starts not in await _slots(db, cfg, starts.date(), data["duration"]):
+    master = await _master(db, data)
+    if master is False:
+        await _master_gone(cb, state, db, cfg)
+        return
+    if starts not in await _slots(db, cfg, starts.date(), data["duration"], master):
         await cb.answer(_("Это время уже недоступно, выберите другое"), show_alert=True)
         await _show_times(cb.message, state, db, cfg)
         return
@@ -293,6 +370,7 @@ async def confirm(cb: CallbackQuery, state: FSMContext, db: Database, cfg: Confi
         client_name=data["client_name"],
         phone=data["phone"],
         reminded=starts - now <= timedelta(minutes=cfg.remind_before),
+        master_id=master["id"] if master else None,
     )
     if booking_id is None:
         await cb.answer(_("Это время только что заняли, выберите другое"), show_alert=True)
@@ -304,12 +382,9 @@ async def confirm(cb: CallbackQuery, state: FSMContext, db: Database, cfg: Confi
     await cb.answer()
 
     booking = await db.get_booking(booking_id)
-    await notify_admins(
-        bot,
-        cfg,
-        _("🆕 <b>Новая запись</b>") + "\n\n" + booking_card(booking, cfg.currency, with_client=True),
-        kb.admin_booking_kb(booking_id),
-    )
+    card = _("🆕 <b>Новая запись</b>") + "\n\n" + booking_card(booking, cfg.currency, with_client=True)
+    await notify_admins(bot, cfg, card, kb.admin_booking_kb(booking_id))
+    await notify_master(bot, cfg, booking, card)
     if cfg.demo_mode and cb.from_user.id not in cfg.admin_ids:
         await cb.message.answer(
             _("👀 <b>Так эту запись увидит владелец</b> — кнопка работает:") + "\n\n"
@@ -330,6 +405,12 @@ async def nav_cancel(cb: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(kb.NavCb.filter(F.to == "services"))
 async def nav_services(cb: CallbackQuery, state: FSMContext, db: Database, cfg: Config) -> None:
     await _show_services(cb.message, state, db, cfg, edit=True)
+    await cb.answer()
+
+
+@router.callback_query(Booking.day, kb.NavCb.filter(F.to == "masters"))
+async def nav_masters(cb: CallbackQuery, state: FSMContext, db: Database, cfg: Config) -> None:
+    await _show_masters(cb.message, state, db, cfg)
     await cb.answer()
 
 
@@ -363,9 +444,9 @@ async def do_cancel(cb: CallbackQuery, callback_data: kb.BookingCb, db: Database
         return
     await safe_edit(cb.message, _("Запись #{id} отменена.", id=booking["id"]))
     await cb.answer()
-    await notify_admins(
-        bot, cfg, _("❌ <b>Клиент отменил запись</b>") + "\n\n" + booking_card(booking, cfg.currency, with_client=True)
-    )
+    card = _("❌ <b>Клиент отменил запись</b>") + "\n\n" + booking_card(booking, cfg.currency, with_client=True)
+    await notify_admins(bot, cfg, card)
+    await notify_master(bot, cfg, booking, card)
 
 
 @router.callback_query(kb.BookingCb.filter(F.action == "my"))
