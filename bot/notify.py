@@ -17,6 +17,16 @@ async def notify_admins(bot: Bot, cfg: Config, text: str, markup: InlineKeyboard
             log.warning("Не удалось уведомить админа %s: %s", admin_id, e)
 
 
+async def notify_master(bot: Bot, cfg: Config, booking, text: str) -> None:
+    """Копия уведомления мастеру записи, если у него указан Telegram ID (админы уже получили своё)."""
+    tg_id = booking["master_tg_id"]
+    if tg_id and tg_id not in cfg.admin_ids:
+        try:
+            await bot.send_message(tg_id, text)
+        except TelegramAPIError as e:
+            log.warning("Не удалось уведомить мастера %s: %s", tg_id, e)
+
+
 async def notify_user(bot: Bot, user_id: int, text: str) -> bool:
     try:
         await bot.send_message(user_id, text)

@@ -6,20 +6,20 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 
-def _parse_time(value: str) -> time:
+def parse_time(value: str) -> time:
     hours, minutes = value.strip().split(":")
     return time(int(hours), int(minutes))
 
 
-def _parse_breaks(value: str) -> tuple[tuple[time, time], ...]:
+def parse_breaks(value: str) -> tuple[tuple[time, time], ...]:
     result = []
     for chunk in filter(None, (c.strip() for c in value.split(","))):
         start, end = chunk.split("-")
-        result.append((_parse_time(start), _parse_time(end)))
+        result.append((parse_time(start), parse_time(end)))
     return tuple(result)
 
 
-def _parse_ints(value: str) -> frozenset[int]:
+def parse_ints(value: str) -> frozenset[int]:
     return frozenset(int(v) for v in value.replace(" ", "").split(",") if v)
 
 
@@ -50,14 +50,14 @@ def load_config() -> Config:
 
     cfg = Config(
         bot_token=token,
-        admin_ids=_parse_ints(os.getenv("ADMIN_IDS", "")),
+        admin_ids=parse_ints(os.getenv("ADMIN_IDS", "")),
         db_path=os.getenv("DB_PATH", "data/bot.db"),
         tz=ZoneInfo(os.getenv("TIMEZONE", "Asia/Almaty")),
         currency=os.getenv("CURRENCY", "₸"),
-        work_start=_parse_time(os.getenv("WORK_START", "10:00")),
-        work_end=_parse_time(os.getenv("WORK_END", "20:00")),
-        breaks=_parse_breaks(os.getenv("BREAKS", "")),
-        work_days=_parse_ints(os.getenv("WORK_DAYS", "1,2,3,4,5,6")),
+        work_start=parse_time(os.getenv("WORK_START", "10:00")),
+        work_end=parse_time(os.getenv("WORK_END", "20:00")),
+        breaks=parse_breaks(os.getenv("BREAKS", "")),
+        work_days=parse_ints(os.getenv("WORK_DAYS", "1,2,3,4,5,6")),
         slot_step=int(os.getenv("SLOT_STEP_MINUTES", "30")),
         days_ahead=int(os.getenv("DAYS_AHEAD", "14")),
         min_lead=int(os.getenv("MIN_LEAD_MINUTES", "60")),

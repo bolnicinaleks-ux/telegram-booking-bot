@@ -6,6 +6,9 @@ import aiosqlite
 from bot.i18n import LANG, _
 from bot.utils import dt_to_str, str_to_dt
 
+# masters — необязательно: нет активных мастеров — одно общее расписание из .env.
+# Поля расписания мастера NULL — берутся глобальные WORK_START / WORK_END / WORK_DAYS / BREAKS.
+# bookings.master_id NULL — запись по общему расписанию (в т.ч. все записи до появления мастеров).
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS services (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -13,6 +16,17 @@ CREATE TABLE IF NOT EXISTS services (
     duration  INTEGER NOT NULL,
     price     INTEGER NOT NULL DEFAULT 0,
     active    INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS masters (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL,
+    active     INTEGER NOT NULL DEFAULT 1,
+    tg_id      INTEGER,
+    work_start TEXT,
+    work_end   TEXT,
+    work_days  TEXT,
+    breaks     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS bookings (
@@ -26,7 +40,8 @@ CREATE TABLE IF NOT EXISTS bookings (
     phone       TEXT    NOT NULL,
     status      TEXT    NOT NULL DEFAULT 'active',
     reminded    INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    master_id   INTEGER REFERENCES masters(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_bookings_time ON bookings(status, starts_at);
@@ -40,10 +55,29 @@ DEFAULT_SERVICES = [
     (_("Консультация"), 30, _PRICES[2]),
 ]
 
+# Демо-мастера (DEMO_MODE): второй работает по своему графику, чтобы была видна разница в слотах.
+DEMO_MASTERS = [
+    (_("Арман"), None, None, None),
+    (_("Данияр"), "12:00", "20:00", "2,3,4,5,6,7"),
+]
+
 BOOKING_SELECT = """
-SELECT b.*, s.name AS service_name
-FROM bookings b JOIN services s ON s.id = b.service_id
+SELECT b.*, s.name AS service_name, m.name AS master_name, m.tg_id AS master_tg_id
+FROM bookings b
+JOIN services s ON s.id = b.service_id
+LEFT JOIN masters m ON m.id = b.master_id
 """
+
+
+def _master_filter(master_id: int | None) -> tuple[str, tuple]:
+    """Какие записи занимают время.
+
+    Без мастера (общее расписание) — все записи. У мастера — его записи и записи без мастера:
+    они сделаны до появления мастеров, неизвестно, к кому они, поэтому блокируют всех.
+    """
+    if master_id is None:
+        return "", ()
+    return " AND (master_id = ? OR master_id IS NULL)", (master_id,)
 
 
 class Database:
@@ -65,10 +99,20 @@ class Database:
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.execute("PRAGMA foreign_keys=ON")
         await self._conn.executescript(SCHEMA)
+        await self._migrate()
         if await self._fetchone("SELECT 1 FROM services LIMIT 1") is None:
             await self._conn.executemany(
                 "INSERT INTO services (name, duration, price) VALUES (?, ?, ?)", DEFAULT_SERVICES
             )
+
+    async def _migrate(self) -> None:
+        """Догоняет схему старых баз: CREATE TABLE IF NOT EXISTS не добавляет новые колонки."""
+        columns = {r["name"] for r in await self._fetchall("PRAGMA table_info(bookings)")}
+        if "master_id" not in columns:
+            await self.conn.execute("ALTER TABLE bookings ADD COLUMN master_id INTEGER REFERENCES masters(id)")
+        await self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bookings_master ON bookings(master_id, status, starts_at)"
+        )
 
     async def close(self) -> None:
         if self._conn is not None:
@@ -105,14 +149,61 @@ class Database:
         cur = await self._write("UPDATE services SET active = 0 WHERE id = ? AND active = 1", (service_id,))
         return cur.rowcount > 0
 
+    # --- Мастера ---
+
+    async def list_masters(self, include_inactive: bool = False) -> list[aiosqlite.Row]:
+        where = "" if include_inactive else " WHERE active = 1"
+        return await self._fetchall(f"SELECT * FROM masters{where} ORDER BY id")
+
+    async def get_master(self, master_id: int) -> aiosqlite.Row | None:
+        return await self._fetchone("SELECT * FROM masters WHERE id = ?", (master_id,))
+
+    async def master_by_tg(self, tg_id: int) -> aiosqlite.Row | None:
+        return await self._fetchone(
+            "SELECT * FROM masters WHERE tg_id = ? AND active = 1 ORDER BY id LIMIT 1", (tg_id,)
+        )
+
+    async def add_master(
+        self,
+        name: str,
+        tg_id: int | None = None,
+        work_start: str | None = None,
+        work_end: str | None = None,
+        work_days: str | None = None,
+        breaks: str | None = None,
+    ) -> int:
+        cur = await self._write(
+            """INSERT INTO masters (name, tg_id, work_start, work_end, work_days, breaks)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (name, tg_id, work_start, work_end, work_days, breaks),
+        )
+        return cur.lastrowid
+
+    async def set_master_active(self, master_id: int, active: bool) -> bool:
+        cur = await self._write(
+            "UPDATE masters SET active = ? WHERE id = ? AND active = ?",
+            (int(active), master_id, int(not active)),
+        )
+        return cur.rowcount > 0
+
+    async def seed_demo_masters(self) -> bool:
+        """DEMO_MODE: два мастера, если мастеров ещё нет. True — если добавлены."""
+        if await self._fetchone("SELECT 1 FROM masters LIMIT 1") is not None:
+            return False
+        for name, start, end, days in DEMO_MASTERS:
+            await self.add_master(name, work_start=start, work_end=end, work_days=days)
+        return True
+
     # --- Записи ---
 
-    async def busy_intervals(self, day: date) -> list[tuple[datetime, datetime]]:
+    async def busy_intervals(self, day: date, master_id: int | None = None) -> list[tuple[datetime, datetime]]:
         start = datetime.combine(day, time.min)
         end = start + timedelta(days=1)
+        extra, extra_params = _master_filter(master_id)
         rows = await self._fetchall(
-            "SELECT starts_at, ends_at FROM bookings WHERE status = 'active' AND starts_at < ? AND ends_at > ?",
-            (dt_to_str(end), dt_to_str(start)),
+            "SELECT starts_at, ends_at FROM bookings WHERE status = 'active' AND starts_at < ? AND ends_at > ?"
+            + extra,
+            (dt_to_str(end), dt_to_str(start)) + extra_params,
         )
         return [(str_to_dt(r["starts_at"]), str_to_dt(r["ends_at"])) for r in rows]
 
@@ -127,24 +218,27 @@ class Database:
         client_name: str,
         phone: str,
         reminded: bool,
+        master_id: int | None = None,
     ) -> int | None:
-        """Атомарно создаёт запись. None — если интервал уже пересекается с другой записью."""
+        """Атомарно создаёт запись. None — если интервал пересекается с другой записью того же мастера."""
         s, e = dt_to_str(starts_at), dt_to_str(ends_at)
+        extra, extra_params = _master_filter(master_id)
         async with self._lock:
             await self.conn.execute("BEGIN IMMEDIATE")
             try:
                 clash = await self._fetchone(
-                    "SELECT 1 FROM bookings WHERE status = 'active' AND starts_at < ? AND ends_at > ? LIMIT 1",
-                    (e, s),
+                    "SELECT 1 FROM bookings WHERE status = 'active' AND starts_at < ? AND ends_at > ?"
+                    + extra + " LIMIT 1",
+                    (e, s) + extra_params,
                 )
                 if clash:
                     await self.conn.execute("ROLLBACK")
                     return None
                 cur = await self.conn.execute(
                     """INSERT INTO bookings
-                       (user_id, service_id, starts_at, ends_at, price, client_name, phone, reminded)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (user_id, service_id, s, e, price, client_name, phone, int(reminded)),
+                       (user_id, service_id, starts_at, ends_at, price, client_name, phone, reminded, master_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (user_id, service_id, s, e, price, client_name, phone, int(reminded), master_id),
                 )
                 await self.conn.execute("COMMIT")
                 return cur.lastrowid
@@ -179,11 +273,14 @@ class Database:
         )
         return cur.rowcount > 0
 
-    async def bookings_on(self, day: date) -> list[aiosqlite.Row]:
+    async def bookings_on(self, day: date, master_id: int | None = None) -> list[aiosqlite.Row]:
+        """Записи на день; с master_id — только записи этого мастера."""
         start = datetime.combine(day, time.min)
+        extra, params = (" AND b.master_id = ?", (master_id,)) if master_id is not None else ("", ())
         return await self._fetchall(
-            f"{BOOKING_SELECT} WHERE b.status = 'active' AND b.starts_at >= ? AND b.starts_at < ? ORDER BY b.starts_at",
-            (dt_to_str(start), dt_to_str(start + timedelta(days=1))),
+            f"{BOOKING_SELECT} WHERE b.status = 'active' AND b.starts_at >= ? AND b.starts_at < ?{extra}"
+            " ORDER BY b.starts_at",
+            (dt_to_str(start), dt_to_str(start + timedelta(days=1))) + params,
         )
 
     async def due_reminders(self, now: datetime, until: datetime) -> list[aiosqlite.Row]:

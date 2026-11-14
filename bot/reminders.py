@@ -20,12 +20,15 @@ async def send_due_reminders(bot: Bot, db: Database, cfg: Config) -> int:
     now = now_local(cfg)
     rows = await db.due_reminders(now, now + timedelta(minutes=cfg.remind_before))
     for r in rows:
-        await notify_user(
-            bot,
-            r["user_id"],
-            _("⏰ Напоминание: {when} — {service}.\nЕсли не сможете прийти, отмените запись в «{my}».",
-              when=fmt_dt(str_to_dt(r["starts_at"])), service=escape(r["service_name"]), my=BTN_MY),
-        )
+        when, service = fmt_dt(str_to_dt(r["starts_at"])), escape(r["service_name"])
+        if r["master_name"]:
+            text = _("⏰ Напоминание: {when} — {service}, мастер {master}.\n"
+                     "Если не сможете прийти, отмените запись в «{my}».",
+                     when=when, service=service, master=escape(r["master_name"]), my=BTN_MY)
+        else:
+            text = _("⏰ Напоминание: {when} — {service}.\nЕсли не сможете прийти, отмените запись в «{my}».",
+                     when=when, service=service, my=BTN_MY)
+        await notify_user(bot, r["user_id"], text)
         await db.mark_reminded(r["id"])
     return len(rows)
 

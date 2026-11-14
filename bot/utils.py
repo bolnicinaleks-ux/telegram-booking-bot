@@ -64,11 +64,19 @@ def normalize_phone(raw: str) -> str | None:
     return "+" + digits
 
 
-def booking_card(row, currency: str, with_client: bool = False) -> str:
+def master_name(row) -> str | None:
+    """Имя мастера записи (None — запись без мастера, общее расписание)."""
+    return row["master_name"] if "master_name" in row.keys() else None
+
+
+def booking_card(row, currency: str, with_client: bool = False, with_master: bool = True) -> str:
     lines = [
         f"<b>#{row['id']}</b> · {fmt_dt(str_to_dt(row['starts_at']))}",
         f"{escape(row['service_name'])} · {fmt_price(row['price'], currency)}",
     ]
+    master = master_name(row) if with_master else None
+    if master:
+        lines.append(_("Мастер: {name}", name=escape(master)))
     if with_client:
         lines.append(f"👤 {escape(row['client_name'])}, {escape(row['phone'])}")
     return "\n".join(lines)

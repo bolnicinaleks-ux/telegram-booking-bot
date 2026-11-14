@@ -1,8 +1,25 @@
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 
-from bot.config import Config
+from bot.config import Config, parse_breaks, parse_ints, parse_time
 
 Interval = tuple[datetime, datetime]
+
+
+def master_cfg(cfg: Config, master) -> Config:
+    """Настройки с расписанием мастера: незаданные поля берутся из глобального расписания (.env)."""
+    if master is None:
+        return cfg
+    changes = {}
+    if master["work_start"]:
+        changes["work_start"] = parse_time(master["work_start"])
+    if master["work_end"]:
+        changes["work_end"] = parse_time(master["work_end"])
+    if master["work_days"]:
+        changes["work_days"] = parse_ints(master["work_days"])
+    if master["breaks"] is not None:  # пустая строка — «без перерывов»
+        changes["breaks"] = parse_breaks(master["breaks"])
+    return replace(cfg, **changes) if changes else cfg
 
 
 def candidate_days(cfg: Config, now: datetime) -> list[date]:

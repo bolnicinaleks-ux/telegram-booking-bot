@@ -12,13 +12,13 @@ from aiogram.types import BotCommand
 from bot.config import load_config
 from bot.db import Database
 from bot.i18n import _
-from bot.handlers import admin, client
+from bot.handlers import admin, client, master
 from bot.reminders import reminder_loop
 
 
 def build_dispatcher(db: Database, cfg) -> Dispatcher:
     dp = Dispatcher(storage=MemoryStorage(), db=db, cfg=cfg)
-    dp.include_routers(admin.router, client.router)
+    dp.include_routers(admin.router, master.router, client.router)
     return dp
 
 
@@ -31,6 +31,8 @@ async def main() -> None:
     os.makedirs(os.path.dirname(cfg.db_path) or ".", exist_ok=True)
     db = Database(cfg.db_path)
     await db.connect()
+    if cfg.demo_mode and await db.seed_demo_masters():
+        logging.info("DEMO_MODE: добавлены демо-мастера")
 
     bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = build_dispatcher(db, cfg)
