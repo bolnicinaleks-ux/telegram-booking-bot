@@ -23,6 +23,10 @@ EN = {
     "Окрашивание": "Hair coloring",
     "Консультация": "Consultation",
 
+    # Демо-мастера
+    "Арман": "Alex",
+    "Данияр": "Daniel",
+
     # Клиент
     "\n\n🧪 <b>Это демо-бот.</b> После записи вы получите копию карточки, "
     "которую видит владелец, и сможете сами отменить запись как администратор.":
@@ -69,6 +73,13 @@ EN = {
     "Кнопка устарела. Начните заново: /book": "This button is outdated. Start again: /book",
     "⏰ Напоминание: {when} — {service}.\nЕсли не сможете прийти, отмените запись в «{my}».":
         "⏰ Reminder: {when} — {service}.\nIf you can't make it, please cancel in “{my}”.",
+    "⏰ Напоминание: {when} — {service}, мастер {master}.\nЕсли не сможете прийти, отмените запись в «{my}».":
+        "⏰ Reminder: {when} — {service} with {master}.\nIf you can't make it, please cancel in “{my}”.",
+    "Мастер: <b>{name}</b>": "Staff: <b>{name}</b>",
+    "Мастер: {name}": "Staff: {name}",
+    "Выберите мастера:": "Choose a staff member:",
+    "Мастер недоступен, выберите другого": "This staff member is unavailable, please choose another",
+    "Свободных дат нет. Выберите другого мастера.": "No free dates. Please choose another staff member.",
 
     # Админ
     "<b>Админ-панель</b>\n\n"
@@ -77,14 +88,53 @@ EN = {
     "/day ДД.ММ[.ГГГГ] — записи на дату\n"
     "/services — список услуг\n"
     "/addservice Название | минуты | цена — добавить услугу\n"
-    "/delservice ID — скрыть услугу":
+    "/delservice ID — скрыть услугу\n\n"
+    "<b>Мастера</b> (необязательно: без них одно общее расписание)\n"
+    "/masters — список мастеров\n"
+    "/addmaster Имя | Telegram ID | 10:00-19:00 | 1,2,3,4,5 | 13:00-14:00 — добавить мастера; "
+    "всё после имени необязательно, «-» — как в общем графике, перерывы «0» — без перерывов\n"
+    "/delmaster ID — отключить мастера\n"
+    "/onmaster ID — включить мастера снова":
         "<b>Admin panel</b>\n\n"
         "/today — today's bookings\n"
         "/tomorrow — tomorrow's bookings\n"
         "/day DD.MM[.YYYY] — bookings for a date\n"
         "/services — list of services\n"
         "/addservice Name | minutes | price — add a service\n"
-        "/delservice ID — hide a service",
+        "/delservice ID — hide a service\n\n"
+        "<b>Staff</b> (optional: without staff there is one shared schedule)\n"
+        "/masters — list of staff\n"
+        "/addmaster Name | Telegram ID | 10:00-19:00 | 1,2,3,4,5 | 13:00-14:00 — add a staff member; "
+        "everything after the name is optional, “-” means the shared schedule, breaks “0” means no breaks\n"
+        "/delmaster ID — disable a staff member\n"
+        "/onmaster ID — enable a staff member again",
+    "Формат: /addmaster Имя | Telegram ID | часы | дни | перерывы\n"
+    "Пример: /addmaster Арман | 123456789 | 10:00-19:00 | 1,2,3,4,5 | 13:00-14:00\n"
+    "Всё после имени необязательно; «-» — как в общем графике.":
+        "Format: /addmaster Name | Telegram ID | hours | days | breaks\n"
+        "Example: /addmaster Alex | 123456789 | 10:00-19:00 | 1,2,3,4,5 | 13:00-14:00\n"
+        "Everything after the name is optional; “-” means the shared schedule.",
+    "Мастеров нет — запись идёт по одному общему расписанию.\n"
+    "Добавить: /addmaster Имя | Telegram ID":
+        "No staff yet — bookings use one shared schedule.\n"
+        "Add one: /addmaster Name | Telegram ID",
+    "<b>Мастера</b>": "<b>Staff</b>",
+    "Общий график: {general}": "Shared schedule: {general}",
+    "дни как в общем графике": "shared working days",
+    "часы как в общем графике": "shared working hours",
+    "перерывы: {breaks}": "breaks: {breaks}",
+    "нет": "none",
+    "отключён": "disabled",
+    "Без мастера": "No staff member",
+    "Мастер добавлен:": "Staff member added:",
+    "Формат: /delmaster ID или /onmaster ID (ID — в /masters)":
+        "Format: /delmaster ID or /onmaster ID (see IDs in /masters)",
+    "Мастер не найден или уже в этом состоянии.": "Staff member not found or already in this state.",
+    "Мастер {id} снова принимает записи.": "Staff member {id} is taking bookings again.",
+    "Мастер {id} отключён: новые записи к нему недоступны, существующие сохранены.":
+        "Staff member {id} is disabled: no new bookings, existing ones are kept.",
+    "❌ <b>Запись отменена администратором</b>": "❌ <b>Booking cancelled by the administrator</b>",
+    "<b>Ваше расписание, {name}</b>": "<b>Your schedule, {name}</b>",
     "Записей нет.": "No bookings.",
     " · записей: {n}": " · bookings: {n}",
     "Формат: /day 05.11 или /day 05.11.2026": "Format: /day 05.11 or /day 05.11.2026 (day.month)",

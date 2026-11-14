@@ -50,6 +50,7 @@ async def main() -> None:
     )
     db = Database(cfg.db_path)
     await db.connect()
+    await db.seed_demo_masters()
     try:
         s = FakeSession()
         bot = Bot(cfg.bot_token, session=s)
@@ -62,6 +63,9 @@ async def main() -> None:
         assert s.texts(CLIENT)[-1] == "Choose a service:"
         assert any("Haircut · 60 min · $30" in t for t in outgoing_texts(s))
         await feed(press(CLIENT, s.buttons("svc")[0]))
+        assert "Choose a staff member:" in s.texts(CLIENT)[-1]
+        await feed(press(CLIENT, s.buttons("mst")[0]))
+        assert "Staff: <b>Alex</b>" in s.texts(CLIENT)[-1]
         await feed(press(CLIENT, s.buttons("day")[1]))
         assert "Choose a time:" in s.texts(CLIENT)[-1]
         await feed(press(CLIENT, s.buttons("tm")[0]))
@@ -82,9 +86,12 @@ async def main() -> None:
         await feed(press(CLIENT, f"bk:my:{booking_id}"))
 
         for cmd in ("/admin", "/today", "/tomorrow", "/services", "/addservice Manicure | 90 | 40",
-                    "/addservice bad", "/delservice 99", "/day 31.13"):
+                    "/addservice bad", "/delservice 99", "/day 31.13",
+                    "/masters", "/addmaster Sam | 1000 | 11:00-18:00 | 1,2,3 | 0", "/schedule", "/addmaster",
+                    "/delmaster 3", "/delmaster 3", "/onmaster x"):
             await feed(msg(ADMIN, cmd))
-        assert "Admin panel" in s.texts(ADMIN)[-8] and "Added:" in s.texts(ADMIN)[-4]
+        assert "Admin panel" in s.texts(ADMIN)[-15] and "Added:" in s.texts(ADMIN)[-11]
+        assert "Staff member added:" in s.texts(ADMIN)[-6] and "Your schedule, Sam" in s.texts(ADMIN)[-5]
         await feed(press(ADMIN, f"bk:acancel:{booking_id}"))
         await feed(press(ADMIN, f"bk:acancel_yes:{booking_id}"))
         assert "cancelled by the administrator" in s.texts(CLIENT)[-1]
@@ -94,6 +101,11 @@ async def main() -> None:
                                 price=0, client_name="John", phone="+15551234567", reminded=False)
         assert await send_due_reminders(bot, db, replace(cfg)) == 1
         assert s.texts(CLIENT)[-1].startswith("⏰ Reminder:")
+        soon += timedelta(minutes=30)  # сразу после первой: запись без мастера блокирует время всех мастеров
+        await db.create_booking(user_id=CLIENT, service_id=1, starts_at=soon, ends_at=soon + timedelta(minutes=30),
+                                price=0, client_name="John", phone="+15551234567", reminded=False, master_id=2)
+        assert await send_due_reminders(bot, db, cfg) == 1
+        assert "with Daniel" in s.texts(CLIENT)[-1]
         await feed(press(CLIENT, "tm:1200"))
         assert "outdated" in s.alerts()[-1]
 

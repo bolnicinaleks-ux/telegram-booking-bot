@@ -23,6 +23,10 @@ class ServiceCb(CallbackData, prefix="svc"):
     id: int
 
 
+class MasterCb(CallbackData, prefix="mst"):
+    id: int
+
+
 class DayCb(CallbackData, prefix="day"):
     d: str  # YYYYMMDD
 
@@ -32,7 +36,7 @@ class TimeCb(CallbackData, prefix="tm"):
 
 
 class NavCb(CallbackData, prefix="nav"):
-    to: str  # services | days | confirm | cancel
+    to: str  # services | masters | days | confirm | cancel
 
 
 class BookingCb(CallbackData, prefix="bk"):
@@ -64,12 +68,21 @@ def services_kb(services, currency: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def days_kb(days: list[date]) -> InlineKeyboardMarkup:
+def masters_kb(masters) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for m in masters:
+        b.button(text=m["name"], callback_data=MasterCb(id=m["id"]))
+    b.adjust(2)
+    b.row(_nav("services", BACK), _nav("cancel", CANCEL))
+    return b.as_markup()
+
+
+def days_kb(days: list[date], back: str = "services") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for d in days:
         b.button(text=fmt_day_short(d), callback_data=DayCb(d=d.strftime("%Y%m%d")))
     b.adjust(3)
-    b.row(_nav("services", BACK), _nav("cancel", CANCEL))
+    b.row(_nav(back, BACK), _nav("cancel", CANCEL))
     return b.as_markup()
 
 
